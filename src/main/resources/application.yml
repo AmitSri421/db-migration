@@ -1,0 +1,36 @@
+spring:
+  datasource:
+    source:
+      url: jdbc:oracle:thin:@//localhost:1521/SOURCE_DB
+      username: source_user
+      password: source_password
+      driver-class-name: oracle.jdbc.OracleDriver
+    target:
+      url: jdbc:oracle:thin:@//localhost:1521/TARGET_DB
+      username: target_user
+      password: target_password
+      driver-class-name: oracle.jdbc.OracleDriver
+
+app:
+  migration:
+    batch:
+      size: 1000
+    checkpoint:
+      enabled: true
+      table-name: MIGRATION_CHECKPOINTS
+    retry:
+      max-attempts: 3
+      delay-ms: 1000
+    output:
+      base-dir: ./output
+      failed-records-dir: ${app.migration.output.base-dir}/failed-records
+
+logging:
+  level:
+    root: INFO
+    com.example.dbmigration: DEBUG
+  file:
+    name: ${app.migration.output.base-dir}/migration.log
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n" 
