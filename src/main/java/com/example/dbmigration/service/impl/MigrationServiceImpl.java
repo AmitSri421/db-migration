@@ -164,8 +164,8 @@ public class MigrationServiceImpl implements MigrationService {
     }
 
     private List<String> getPartitions(String tableName, String partitionKey) {
-        String sql = "SELECT partition_name FROM all_tab_partitions WHERE table_name = ?";
-        return sourceJdbcTemplate.queryForList(sql, String.class, tableName);
+        String sql = "SELECT partition_name FROM all_tab_partitions WHERE table_name = ? AND partition_key_column LIKE ?";
+        return sourceJdbcTemplate.queryForList(sql, String.class, tableName, "%" + partitionKey + "%");
     }
 
     private String buildSelectSql(String tableName, List<String> columns, String whereClause) {
