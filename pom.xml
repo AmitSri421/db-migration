@@ -6,7 +6,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>2.7.0</version>
+        <version>3.2.0</version>
         <relativePath/>
     </parent>
     
@@ -17,9 +17,9 @@
     <description>Database Migration Tool</description>
     
     <properties>
-        <java.version>11</java.version>
-        <oracle.version>19.8.0.0</oracle.version>
-        <springdoc.version>1.6.9</springdoc.version>
+        <java.version>17</java.version>
+        <oracle.version>23.3.0.23.09</oracle.version>
+        <springdoc.version>2.3.0</springdoc.version>
     </properties>
     
     <dependencies>
@@ -44,12 +44,7 @@
         <!-- Swagger / OpenAPI -->
         <dependency>
             <groupId>org.springdoc</groupId>
-            <artifactId>springdoc-openapi-ui</artifactId>
-            <version>${springdoc.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.springdoc</groupId>
-            <artifactId>springdoc-openapi-webmvc-core</artifactId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
             <version>${springdoc.version}</version>
         </dependency>
         
