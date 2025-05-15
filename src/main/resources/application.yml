@@ -5,11 +5,20 @@ spring:
       username: source_user
       password: source_password
       driver-class-name: oracle.jdbc.OracleDriver
+      schema: SOURCE_SCHEMA
     target:
       url: jdbc:oracle:thin:@//localhost:1521/TARGET_DB
       username: target_user
       password: target_password
       driver-class-name: oracle.jdbc.OracleDriver
+      schema: TARGET_SCHEMA
+
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operationsSorter: method
 
 app:
   migration:
