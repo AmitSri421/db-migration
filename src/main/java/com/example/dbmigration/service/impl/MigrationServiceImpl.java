@@ -9,11 +9,20 @@ import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.BufferedWriter;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.sql.*;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 import java.util.ArrayList;
@@ -27,14 +36,53 @@ public class MigrationServiceImpl implements MigrationService {
     private final JdbcTemplate sourceJdbcTemplate;
     private final JdbcTemplate targetJdbcTemplate;
     private final MappingConfig mappingConfig;
+    private final String failedRecordsDir;
 
     public MigrationServiceImpl(
             @Qualifier("sourceJdbcTemplate") JdbcTemplate sourceJdbcTemplate,
             @Qualifier("targetJdbcTemplate") JdbcTemplate targetJdbcTemplate,
-            MappingConfig mappingConfig) {
+            MappingConfig mappingConfig,
+            @Value("${app.migration.output.failed-records-dir}") String failedRecordsDir) {
         this.sourceJdbcTemplate = sourceJdbcTemplate;
         this.targetJdbcTemplate = targetJdbcTemplate;
         this.mappingConfig = mappingConfig;
+        this.failedRecordsDir = failedRecordsDir;
+        createFailedRecordsDirectory();
+    }
+
+    private void createFailedRecordsDirectory() {
+        try {
+            Path dir = Paths.get(failedRecordsDir);
+            if (!Files.exists(dir)) {
+                Files.createDirectories(dir);
+            }
+        } catch (IOException e) {
+            log.error("Failed to create failed records directory: {}", failedRecordsDir, e);
+        }
+    }
+
+    private String getFailedRecordsFileName(String tableName) {
+        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
+        return String.format("%s/%s_failed_records_%s.csv", failedRecordsDir, tableName, timestamp);
+    }
+
+    private void logFailedRecord(String fileName, Map<String, Object> record, String errorMessage) {
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(fileName, true))) {
+            // Write header if file is new
+            if (Files.size(Paths.get(fileName)) == 0) {
+                writer.write("timestamp,error_message,record_data\n");
+            }
+
+            // Write failed record
+            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+            String recordData = record.entrySet().stream()
+                    .map(e -> String.format("%s=%s", e.getKey(), e.getValue()))
+                    .collect(Collectors.joining("|"));
+            
+            writer.write(String.format("%s,%s,%s\n", timestamp, errorMessage, recordData));
+        } catch (IOException e) {
+            log.error("Failed to write failed record to file: {}", fileName, e);
+        }
     }
 
     @Override
@@ -66,14 +114,14 @@ public class MigrationServiceImpl implements MigrationService {
                     batch.add(row);
                     
                     if (batch.size() >= batchSize) {
-                        processBatch(insertSql, batch, columns);
+                        processBatch(insertSql, batch, columns, mapping.getTargetTable());
                         batch.clear();
                     }
                 }
                 
                 // Process remaining records
                 if (!batch.isEmpty()) {
-                    processBatch(insertSql, batch, columns);
+                    processBatch(insertSql, batch, columns, mapping.getTargetTable());
                 }
             }
             
@@ -121,14 +169,14 @@ public class MigrationServiceImpl implements MigrationService {
                         batch.add(row);
                         
                         if (batch.size() >= batchSize) {
-                            processBatch(insertSql, batch, columns);
+                            processBatch(insertSql, batch, columns, mapping.getTargetTable());
                             batch.clear();
                         }
                     }
                     
                     // Process remaining records
                     if (!batch.isEmpty()) {
-                        processBatch(insertSql, batch, columns);
+                        processBatch(insertSql, batch, columns, mapping.getTargetTable());
                     }
                 }
             }
@@ -256,16 +304,23 @@ public class MigrationServiceImpl implements MigrationService {
         }
     }
 
-    private void processBatch(String insertSql, List<Map<String, Object>> batch, List<ColumnInfo> columns) {
+    private void processBatch(String insertSql, List<Map<String, Object>> batch, List<ColumnInfo> columns, String tableName) {
+        String failedRecordsFile = getFailedRecordsFileName(tableName);
+        
         targetJdbcTemplate.batchUpdate(insertSql, batch, batch.size(), (ps, row) -> {
-            int i = 1;
-            for (ColumnInfo column : columns) {
-                Object value = row.get(column.getName());
-                if (value == null) {
-                    ps.setNull(i++, getSqlType(column.getDataType()));
-                } else {
-                    setParameterValue(ps, i++, value, column);
+            try {
+                int i = 1;
+                for (ColumnInfo column : columns) {
+                    Object value = row.get(column.getName());
+                    if (value == null) {
+                        ps.setNull(i++, getSqlType(column.getDataType()));
+                    } else {
+                        setParameterValue(ps, i++, value, column);
+                    }
                 }
+            } catch (SQLException e) {
+                logFailedRecord(failedRecordsFile, row, e.getMessage());
+                throw new RuntimeException("Failed to set parameter values", e);
             }
         });
     }
