@@ -2,7 +2,9 @@ package com.example.dbmigration.controller;
 
 import com.example.dbmigration.config.MappingConfig;
 import com.example.dbmigration.model.MappingRequest;
+import com.example.dbmigration.model.SimpleMigrationRequest;
 import com.example.dbmigration.service.MigrationService;
+import com.example.dbmigration.service.SimpleMigrationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -25,10 +27,14 @@ public class MigrationController {
 
     private final MigrationService migrationService;
     private final MappingConfig mappingConfig;
+    private final SimpleMigrationService simpleMigrationService;
 
-    public MigrationController(MigrationService migrationService, MappingConfig mappingConfig) {
+    public MigrationController(MigrationService migrationService, 
+                             MappingConfig mappingConfig,
+                             SimpleMigrationService simpleMigrationService) {
         this.migrationService = migrationService;
         this.mappingConfig = mappingConfig;
+        this.simpleMigrationService = simpleMigrationService;
     }
 
     @PostMapping("/config")
@@ -78,5 +84,22 @@ public class MigrationController {
         response.put("status", "success");
         response.put("message", "All migrations completed");
         return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/simple-migrate")
+    @Operation(summary = "Simple table migration", description = "Migrate data between tables with same column names")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Migration completed successfully"),
+        @ApiResponse(responseCode = "400", description = "Invalid request format or data"),
+        @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
+    public ResponseEntity<String> simpleMigrate(@Valid @RequestBody SimpleMigrationRequest request) {
+        try {
+            simpleMigrationService.migrate(request);
+            return ResponseEntity.ok("Migration completed successfully");
+        } catch (Exception e) {
+            log.error("Migration failed", e);
+            return ResponseEntity.internalServerError().body("Migration failed: " + e.getMessage());
+        }
     }
 } 
