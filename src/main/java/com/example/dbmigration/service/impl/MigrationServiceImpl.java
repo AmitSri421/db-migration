@@ -1,22 +1,24 @@
 package com.example.dbmigration.service.impl;
 
 import com.example.dbmigration.config.MappingConfig;
+import com.example.dbmigration.constant.MigrationConstants;
+import com.example.dbmigration.exception.MigrationException;
 import com.example.dbmigration.model.ColumnInfo;
 import com.example.dbmigration.model.DeleteRequest;
 import com.example.dbmigration.model.PartitionMapping;
 import com.example.dbmigration.model.TableMapping;
 import com.example.dbmigration.model.TruncateRequest;
 import com.example.dbmigration.service.MigrationService;
+import com.example.dbmigration.util.BatchProcessor;
 import com.example.dbmigration.util.RowMapperUtil;
-import lombok.Data;
-import lombok.Getter;
-import lombok.Setter;
+import com.example.dbmigration.util.SqlBuilder;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.io.BufferedWriter;
 import java.io.FileWriter;
@@ -27,12 +29,8 @@ import java.nio.file.Paths;
 import java.sql.*;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.List;
-import java.util.Map;
-import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.*;
 import java.util.stream.Collectors;
-import java.util.Collections;
 
 @Slf4j
 @Service
@@ -63,23 +61,24 @@ public class MigrationServiceImpl implements MigrationService {
             }
         } catch (IOException e) {
             log.error("Failed to create failed records directory: {}", failedRecordsDir, e);
+            throw new MigrationException("Failed to create failed records directory", e);
         }
     }
 
     private String getFailedRecordsFileName(String tableName) {
-        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
-        return String.format("%s/%s_failed_records_%s.csv", failedRecordsDir, tableName, timestamp);
+        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern(MigrationConstants.TIMESTAMP_FORMAT));
+        return String.format(MigrationConstants.FAILED_RECORDS_FORMAT, failedRecordsDir, tableName, timestamp);
     }
 
     private void logFailedRecord(String fileName, Map<String, Object> record, String errorMessage) {
         try (BufferedWriter writer = new BufferedWriter(new FileWriter(fileName, true))) {
             // Write header if file is new
             if (Files.size(Paths.get(fileName)) == 0) {
-                writer.write("timestamp,error_message,record_data\n");
+                writer.write(MigrationConstants.FAILED_RECORDS_HEADER);
             }
 
             // Write failed record
-            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern(MigrationConstants.ISO_TIMESTAMP_FORMAT));
             String recordData = record.entrySet().stream()
                     .map(e -> String.format("%s=%s", e.getKey(), e.getValue()))
                     .collect(Collectors.joining("|"));
@@ -87,6 +86,7 @@ public class MigrationServiceImpl implements MigrationService {
             writer.write(String.format("%s,%s,%s\n", timestamp, errorMessage, recordData));
         } catch (IOException e) {
             log.error("Failed to write failed record to file: {}", fileName, e);
+            throw new MigrationException("Failed to write failed record", e);
         }
     }
 
@@ -102,11 +102,11 @@ public class MigrationServiceImpl implements MigrationService {
                 : getTableColumns(mapping.getSourceTable());
             
             // Build SQL statements
-            String selectSql = buildSelectSql(mapping.getSourceTable(), columns, mapping.getWhereClause());
-            String insertSql = buildInsertSql(mapping.getTargetTable(), columns);
+            String selectSql = SqlBuilder.buildSelectSql(mapping.getSourceTable(), columns, mapping.getWhereClause());
+            String insertSql = SqlBuilder.buildInsertSql(mapping.getTargetTable(), columns);
             
             // Process in batches
-            int batchSize = mapping.getBatchSize();
+            int batchSize = Math.min(mapping.getBatchSize(), MigrationConstants.MAX_BATCH_SIZE);
             List<Map<String, Object>> batch = new ArrayList<>();
             
             try (Connection sourceConn = sourceJdbcTemplate.getDataSource().getConnection();
@@ -116,7 +116,7 @@ public class MigrationServiceImpl implements MigrationService {
                 while (rs.next()) {
                     Map<String, Object> row = new HashMap<>();
                     for (ColumnInfo column : columns) {
-                        row.put(column.getName(), getColumnValue(rs, column));
+                        row.put(column.getName(), RowMapperUtil.getColumnValue(rs, column));
                     }
                     batch.add(row);
                     
@@ -136,7 +136,7 @@ public class MigrationServiceImpl implements MigrationService {
             
         } catch (Exception e) {
             log.error("Error migrating table: {} -> {}", mapping.getSourceTable(), mapping.getTargetTable(), e);
-            throw new RuntimeException("Migration failed", e);
+            throw new MigrationException("Migration failed", e);
         }
     }
 
@@ -158,12 +158,12 @@ public class MigrationServiceImpl implements MigrationService {
                     : getTableColumns(mapping.getSourceTable());
                 
                 // Build SQL statements with partition
-                String selectSql = buildPartitionSelectSql(mapping.getSourceTable(), columns, 
+                String selectSql = SqlBuilder.buildPartitionSelectSql(mapping.getSourceTable(), columns, 
                     mapping.getPartitionKey(), partition, mapping.getWhereClause());
-                String insertSql = buildInsertSql(mapping.getTargetTable(), columns);
+                String insertSql = SqlBuilder.buildInsertSql(mapping.getTargetTable(), columns);
                 
                 // Process in batches
-                int batchSize = mapping.getBatchSize();
+                int batchSize = Math.min(mapping.getBatchSize(), MigrationConstants.MAX_BATCH_SIZE);
                 List<Map<String, Object>> batch = new ArrayList<>();
                 
                 try (Connection sourceConn = sourceJdbcTemplate.getDataSource().getConnection();
@@ -173,7 +173,7 @@ public class MigrationServiceImpl implements MigrationService {
                     while (rs.next()) {
                         Map<String, Object> row = new HashMap<>();
                         for (ColumnInfo column : columns) {
-                            row.put(column.getName(), getColumnValue(rs, column));
+                            row.put(column.getName(), RowMapperUtil.getColumnValue(rs, column));
                         }
                         batch.add(row);
                         
@@ -194,7 +194,7 @@ public class MigrationServiceImpl implements MigrationService {
             
         } catch (Exception e) {
             log.error("Error migrating partition: {} -> {}", mapping.getSourceTable(), mapping.getTargetTable(), e);
-            throw new RuntimeException("Migration failed", e);
+            throw new MigrationException("Migration failed", e);
         }
     }
 
@@ -237,50 +237,29 @@ public class MigrationServiceImpl implements MigrationService {
         log.info("Starting truncate operation for table: {}", request.getTargetTable());
         
         try {
-            // Check if table exists in target database
-            String checkTableSql = "SELECT 1 FROM all_tables WHERE table_name = ?";
-            List<Integer> result = targetJdbcTemplate.queryForList(checkTableSql, Integer.class, request.getTargetTable());
-            
-            if (result.isEmpty()) {
-                throw new RuntimeException("Table " + request.getTargetTable() + " does not exist in target database");
-            }
-
-            // If partition value is provided, check if partition exists
-            if (request.getPartitionValue() != null && !request.getPartitionValue().isEmpty()) {
-                String checkPartitionSql = "SELECT 1 FROM all_tab_partitions WHERE table_name = ? AND partition_name = ?";
-                List<Integer> partitionResult = targetJdbcTemplate.queryForList(
-                    checkPartitionSql, Integer.class, request.getTargetTable(), request.getPartitionValue());
-                
-                if (partitionResult.isEmpty()) {
-                    throw new RuntimeException("Partition " + request.getPartitionValue() + 
-                        " does not exist in table " + request.getTargetTable());
-                }
+            validateTableExists(request.getTargetTable());
+            if (StringUtils.hasText(request.getPartitionValue())) {
+                validatePartitionExists(request.getTargetTable(), request.getPartitionValue());
             }
             
-            // Build truncate SQL
-            StringBuilder truncateSql = new StringBuilder("TRUNCATE TABLE ").append(request.getTargetTable());
+            String truncateSql = SqlBuilder.buildTruncateSql(
+                request.getTargetTable(), 
+                request.getPartitionValue(), 
+                request.isCascade()
+            );
             
-            if (request.getPartitionValue() != null && !request.getPartitionValue().isEmpty()) {
-                truncateSql.append(" PARTITION(").append(request.getPartitionValue()).append(")");
-            }
+            targetJdbcTemplate.execute(truncateSql);
             
-            if (request.isCascade()) {
-                truncateSql.append(" CASCADE");
-            }
-            
-            // Execute truncate
-            targetJdbcTemplate.execute(truncateSql.toString());
-            
-            String operation = request.getPartitionValue() != null ? "partition" : "table";
+            String operation = StringUtils.hasText(request.getPartitionValue()) ? "partition" : "table";
             log.info("Successfully truncated {}: {}", 
                 operation, 
-                request.getPartitionValue() != null ? 
+                StringUtils.hasText(request.getPartitionValue()) ? 
                     request.getTargetTable() + "." + request.getPartitionValue() : 
                     request.getTargetTable());
             
         } catch (Exception e) {
             log.error("Error truncating table: {}", request.getTargetTable(), e);
-            throw new RuntimeException("Truncate operation failed", e);
+            throw new MigrationException("Truncate operation failed", e);
         }
     }
 
@@ -290,74 +269,74 @@ public class MigrationServiceImpl implements MigrationService {
         log.info("Starting delete operation for table: {}", request.getTargetTable());
         
         try {
-            // Check if table exists in target database
-            String checkTableSql = "SELECT 1 FROM all_tables WHERE table_name = ?";
-            List<Integer> result = targetJdbcTemplate.queryForList(checkTableSql, Integer.class, request.getTargetTable());
-            
-            if (result.isEmpty()) {
-                throw new RuntimeException("Table " + request.getTargetTable() + " does not exist in target database");
-            }
-
-            // If partition value is provided, check if partition exists
-            if (request.getPartitionValue() != null && !request.getPartitionValue().isEmpty()) {
-                String checkPartitionSql = "SELECT 1 FROM all_tab_partitions WHERE table_name = ? AND partition_name = ?";
-                List<Integer> partitionResult = targetJdbcTemplate.queryForList(
-                    checkPartitionSql, Integer.class, request.getTargetTable(), request.getPartitionValue());
-                
-                if (partitionResult.isEmpty()) {
-                    throw new RuntimeException("Partition " + request.getPartitionValue() + 
-                        " does not exist in table " + request.getTargetTable());
-                }
+            validateTableExists(request.getTargetTable());
+            if (StringUtils.hasText(request.getPartitionValue())) {
+                validatePartitionExists(request.getTargetTable(), request.getPartitionValue());
             }
             
-            // Build delete SQL
-            StringBuilder deleteSql = new StringBuilder("DELETE FROM ").append(request.getTargetTable());
+            String deleteSql = SqlBuilder.buildDeleteSql(
+                request.getTargetTable(),
+                request.getPartitionValue(),
+                request.getWhereClause()
+            );
             
-            if (request.getPartitionValue() != null && !request.getPartitionValue().isEmpty()) {
-                deleteSql.append(" PARTITION(").append(request.getPartitionValue()).append(")");
-            }
+            int totalDeleted = BatchProcessor.processDeleteBatch(
+                deleteSql,
+                Math.min(request.getBatchSize(), MigrationConstants.MAX_BATCH_SIZE),
+                targetJdbcTemplate
+            );
             
-            deleteSql.append(" WHERE ").append(request.getWhereClause());
-            
-            // Execute delete in batches
-            int totalDeleted = 0;
-            int batchSize = request.getBatchSize();
-            
-            while (true) {
-                String batchDeleteSql = deleteSql.toString() + " AND ROWNUM <= " + batchSize;
-                int deleted = targetJdbcTemplate.update(batchDeleteSql);
-                totalDeleted += deleted;
-                
-                if (deleted < batchSize) {
-                    break;
-                }
-            }
-            
-            String operation = request.getPartitionValue() != null ? "partition" : "table";
+            String operation = StringUtils.hasText(request.getPartitionValue()) ? "partition" : "table";
             log.info("Successfully deleted {} rows from {}: {}", 
                 totalDeleted,
                 operation, 
-                request.getPartitionValue() != null ? 
+                StringUtils.hasText(request.getPartitionValue()) ? 
                     request.getTargetTable() + "." + request.getPartitionValue() : 
                     request.getTargetTable());
             
         } catch (Exception e) {
             log.error("Error deleting rows from table: {}", request.getTargetTable(), e);
-            throw new RuntimeException("Delete operation failed", e);
+            throw new MigrationException("Delete operation failed", e);
+        }
+    }
+
+    private void validateTableExists(String tableName) {
+        List<Integer> result = targetJdbcTemplate.queryForList(
+            MigrationConstants.CHECK_TABLE_EXISTS, 
+            Integer.class, 
+            tableName
+        );
+        
+        if (result.isEmpty()) {
+            throw new MigrationException("Table " + tableName + " does not exist in target database");
+        }
+    }
+
+    private void validatePartitionExists(String tableName, String partitionValue) {
+        List<Integer> result = targetJdbcTemplate.queryForList(
+            MigrationConstants.CHECK_PARTITION_EXISTS,
+            Integer.class,
+            tableName,
+            partitionValue
+        );
+        
+        if (result.isEmpty()) {
+            throw new MigrationException("Partition " + partitionValue + 
+                " does not exist in table " + tableName);
         }
     }
 
     private List<ColumnInfo> getTableColumns(String tableName) {
-        String sql = "SELECT column_name, data_type, data_length, data_precision, data_scale " +
-                    "FROM all_tab_columns WHERE table_name = ? ORDER BY column_id";
-        return sourceJdbcTemplate.query(sql, RowMapperUtil.COLUMN_INFO_MAPPER, tableName);
+        return sourceJdbcTemplate.query(
+            MigrationConstants.GET_TABLE_COLUMNS,
+            RowMapperUtil.COLUMN_INFO_MAPPER,
+            tableName
+        );
     }
 
     private List<ColumnInfo> getTableColumns(String tableName, List<String> columns) {
-        String sql = "SELECT column_name, data_type, data_length, data_precision, data_scale " +
-                    "FROM all_tab_columns WHERE table_name = ? AND column_name IN (" +
-                    String.join(",", Collections.nCopies(columns.size(), "?")) + ") " +
-                    "ORDER BY column_id";
+        String placeholders = String.join(",", Collections.nCopies(columns.size(), "?"));
+        String sql = String.format(MigrationConstants.GET_TABLE_COLUMNS_WITH_FILTER, placeholders);
         
         List<Object> params = new ArrayList<>();
         params.add(tableName);
@@ -367,67 +346,23 @@ public class MigrationServiceImpl implements MigrationService {
     }
 
     private List<String> getPartitions(String tableName, String partitionKey) {
-        String sql = "SELECT partition_name FROM all_tab_partitions WHERE table_name = ? AND partition_key_column LIKE ?";
-        return sourceJdbcTemplate.queryForList(sql, String.class, tableName, "%" + partitionKey + "%");
-    }
-
-    private String buildSelectSql(String tableName, List<ColumnInfo> columns, String whereClause) {
-        StringBuilder sql = new StringBuilder("SELECT ");
-        sql.append(String.join(", ", columns.stream().map(ColumnInfo::getName).collect(Collectors.toList())));
-        sql.append(" FROM ").append(tableName);
-        
-        if (whereClause != null && !whereClause.isEmpty()) {
-            sql.append(" WHERE ").append(whereClause);
-        }
-        
-        return sql.toString();
-    }
-
-    private String buildPartitionSelectSql(String tableName, List<ColumnInfo> columns, 
-            String partitionKey, String partition, String whereClause) {
-        StringBuilder sql = new StringBuilder("SELECT ");
-        sql.append(String.join(", ", columns.stream().map(ColumnInfo::getName).collect(Collectors.toList())));
-        sql.append(" FROM ").append(tableName);
-        sql.append(" PARTITION(").append(partition).append(")");
-        
-        if (whereClause != null && !whereClause.isEmpty()) {
-            sql.append(" WHERE ").append(whereClause);
-        }
-        
-        return sql.toString();
-    }
-
-    private String buildInsertSql(String tableName, List<ColumnInfo> columns) {
-        StringBuilder sql = new StringBuilder("INSERT INTO ");
-        sql.append(tableName);
-        sql.append(" (").append(String.join(", ", columns.stream().map(ColumnInfo::getName).collect(Collectors.toList()))).append(") ");
-        sql.append("VALUES (");
-        sql.append("?, ".repeat(columns.size() - 1)).append("?)");
-        return sql.toString();
-    }
-
-    private Object getColumnValue(ResultSet rs, ColumnInfo column) throws SQLException {
-        return RowMapperUtil.getColumnValue(rs, column);
+        return sourceJdbcTemplate.queryForList(
+            MigrationConstants.GET_PARTITIONS,
+            String.class,
+            tableName,
+            "%" + partitionKey + "%"
+        );
     }
 
     private void processBatch(String insertSql, List<Map<String, Object>> batch, List<ColumnInfo> columns, String tableName) {
         String failedRecordsFile = getFailedRecordsFileName(tableName);
-        
-        targetJdbcTemplate.batchUpdate(insertSql, batch, batch.size(), (ps, row) -> {
-            try {
-                int i = 1;
-                for (ColumnInfo column : columns) {
-                    Object value = row.get(column.getName());
-                    if (value == null) {
-                        ps.setNull(i++, RowMapperUtil.getSqlType(column.getDataType()));
-                    } else {
-                        RowMapperUtil.setParameterValue(ps, i++, value, column);
-                    }
-                }
-            } catch (SQLException e) {
-                logFailedRecord(failedRecordsFile, row, e.getMessage());
-                throw new RuntimeException("Failed to set parameter values", e);
-            }
-        });
+        BatchProcessor.processBatch(
+            insertSql,
+            batch,
+            columns,
+            tableName,
+            targetJdbcTemplate,
+            row -> logFailedRecord(failedRecordsFile, row, "Failed to insert record")
+        );
     }
 } 
