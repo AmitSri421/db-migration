@@ -2,6 +2,7 @@ package com.example.dbmigration.controller;
 
 import com.example.dbmigration.config.MappingConfig;
 import com.example.dbmigration.model.MappingRequest;
+import com.example.dbmigration.model.TruncateRequest;
 import com.example.dbmigration.service.MigrationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -78,5 +79,29 @@ public class MigrationController {
         response.put("status", "success");
         response.put("message", "All migrations completed");
         return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/truncate")
+    @Operation(summary = "Truncate target table", description = "Truncate a table in the target database")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Table truncated successfully"),
+        @ApiResponse(responseCode = "400", description = "Invalid request format or data"),
+        @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
+    public ResponseEntity<Map<String, String>> truncateTable(@Valid @RequestBody TruncateRequest request) {
+        try {
+            migrationService.truncateTable(request);
+            
+            Map<String, String> response = new HashMap<>();
+            response.put("status", "success");
+            response.put("message", "Table " + request.getTargetTable() + " truncated successfully");
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("Truncate operation failed", e);
+            Map<String, String> response = new HashMap<>();
+            response.put("status", "error");
+            response.put("message", "Truncate operation failed: " + e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
     }
 } 

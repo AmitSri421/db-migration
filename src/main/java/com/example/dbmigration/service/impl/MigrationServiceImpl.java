@@ -227,6 +227,36 @@ public class MigrationServiceImpl implements MigrationService {
         migrateAllPartitions();
     }
 
+    @Override
+    @Transactional
+    public void truncateTable(TruncateRequest request) {
+        log.info("Starting truncate operation for table: {}", request.getTargetTable());
+        
+        try {
+            // Check if table exists in target database
+            String checkTableSql = "SELECT 1 FROM all_tables WHERE table_name = ?";
+            List<Integer> result = targetJdbcTemplate.queryForList(checkTableSql, Integer.class, request.getTargetTable());
+            
+            if (result.isEmpty()) {
+                throw new RuntimeException("Table " + request.getTargetTable() + " does not exist in target database");
+            }
+            
+            // Build and execute truncate SQL
+            String truncateSql = "TRUNCATE TABLE " + request.getTargetTable();
+            if (request.isCascade()) {
+                truncateSql += " CASCADE";
+            }
+            
+            targetJdbcTemplate.execute(truncateSql);
+            
+            log.info("Successfully truncated table: {}", request.getTargetTable());
+            
+        } catch (Exception e) {
+            log.error("Error truncating table: {}", request.getTargetTable(), e);
+            throw new RuntimeException("Truncate operation failed", e);
+        }
+    }
+
     private List<ColumnInfo> getTableColumns(String tableName) {
         String sql = "SELECT column_name, data_type, data_length, data_precision, data_scale " +
                     "FROM all_tab_columns WHERE table_name = ? ORDER BY column_id";
