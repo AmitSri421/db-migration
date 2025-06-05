@@ -1,8 +1,10 @@
 package com.example.dbmigration.service.impl;
 
 import com.example.dbmigration.config.MappingConfig;
+import com.example.dbmigration.model.DeleteRequest;
 import com.example.dbmigration.model.PartitionMapping;
 import com.example.dbmigration.model.TableMapping;
+import com.example.dbmigration.model.TruncateRequest;
 import com.example.dbmigration.service.MigrationService;
 import lombok.Data;
 import lombok.Getter;
