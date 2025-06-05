@@ -253,7 +253,7 @@ public class MigrationServiceImpl implements MigrationService {
                 }
             }
             
-            // Build and execute truncate SQL
+            // Build truncate SQL
             StringBuilder truncateSql = new StringBuilder("TRUNCATE TABLE ").append(request.getTargetTable());
             
             if (request.getPartitionValue() != null && !request.getPartitionValue().isEmpty()) {
@@ -264,10 +264,12 @@ public class MigrationServiceImpl implements MigrationService {
                 truncateSql.append(" CASCADE");
             }
             
+            // Execute truncate
             targetJdbcTemplate.execute(truncateSql.toString());
             
             String operation = request.getPartitionValue() != null ? "partition" : "table";
-            log.info("Successfully truncated {}: {}", operation, 
+            log.info("Successfully truncated {}: {}", 
+                operation, 
                 request.getPartitionValue() != null ? 
                     request.getTargetTable() + "." + request.getPartitionValue() : 
                     request.getTargetTable());
@@ -275,6 +277,69 @@ public class MigrationServiceImpl implements MigrationService {
         } catch (Exception e) {
             log.error("Error truncating table: {}", request.getTargetTable(), e);
             throw new RuntimeException("Truncate operation failed", e);
+        }
+    }
+
+    @Override
+    @Transactional
+    public void deleteRows(DeleteRequest request) {
+        log.info("Starting delete operation for table: {}", request.getTargetTable());
+        
+        try {
+            // Check if table exists in target database
+            String checkTableSql = "SELECT 1 FROM all_tables WHERE table_name = ?";
+            List<Integer> result = targetJdbcTemplate.queryForList(checkTableSql, Integer.class, request.getTargetTable());
+            
+            if (result.isEmpty()) {
+                throw new RuntimeException("Table " + request.getTargetTable() + " does not exist in target database");
+            }
+
+            // If partition value is provided, check if partition exists
+            if (request.getPartitionValue() != null && !request.getPartitionValue().isEmpty()) {
+                String checkPartitionSql = "SELECT 1 FROM all_tab_partitions WHERE table_name = ? AND partition_name = ?";
+                List<Integer> partitionResult = targetJdbcTemplate.queryForList(
+                    checkPartitionSql, Integer.class, request.getTargetTable(), request.getPartitionValue());
+                
+                if (partitionResult.isEmpty()) {
+                    throw new RuntimeException("Partition " + request.getPartitionValue() + 
+                        " does not exist in table " + request.getTargetTable());
+                }
+            }
+            
+            // Build delete SQL
+            StringBuilder deleteSql = new StringBuilder("DELETE FROM ").append(request.getTargetTable());
+            
+            if (request.getPartitionValue() != null && !request.getPartitionValue().isEmpty()) {
+                deleteSql.append(" PARTITION(").append(request.getPartitionValue()).append(")");
+            }
+            
+            deleteSql.append(" WHERE ").append(request.getWhereClause());
+            
+            // Execute delete in batches
+            int totalDeleted = 0;
+            int batchSize = request.getBatchSize();
+            
+            while (true) {
+                String batchDeleteSql = deleteSql.toString() + " AND ROWNUM <= " + batchSize;
+                int deleted = targetJdbcTemplate.update(batchDeleteSql);
+                totalDeleted += deleted;
+                
+                if (deleted < batchSize) {
+                    break;
+                }
+            }
+            
+            String operation = request.getPartitionValue() != null ? "partition" : "table";
+            log.info("Successfully deleted {} rows from {}: {}", 
+                totalDeleted,
+                operation, 
+                request.getPartitionValue() != null ? 
+                    request.getTargetTable() + "." + request.getPartitionValue() : 
+                    request.getTargetTable());
+            
+        } catch (Exception e) {
+            log.error("Error deleting rows from table: {}", request.getTargetTable(), e);
+            throw new RuntimeException("Delete operation failed", e);
         }
     }
 

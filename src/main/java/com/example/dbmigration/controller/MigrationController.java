@@ -3,6 +3,7 @@ package com.example.dbmigration.controller;
 import com.example.dbmigration.config.MappingConfig;
 import com.example.dbmigration.model.MappingRequest;
 import com.example.dbmigration.model.TruncateRequest;
+import com.example.dbmigration.model.DeleteRequest;
 import com.example.dbmigration.service.MigrationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -101,6 +102,30 @@ public class MigrationController {
             Map<String, String> response = new HashMap<>();
             response.put("status", "error");
             response.put("message", "Truncate operation failed: " + e.getMessage());
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
+
+    @PostMapping("/delete")
+    @Operation(summary = "Delete rows from target table", description = "Delete rows from a table in the target database based on WHERE clause")
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Rows deleted successfully"),
+        @ApiResponse(responseCode = "400", description = "Invalid request format or data"),
+        @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
+    public ResponseEntity<Map<String, String>> deleteRows(@Valid @RequestBody DeleteRequest request) {
+        try {
+            migrationService.deleteRows(request);
+            
+            Map<String, String> response = new HashMap<>();
+            response.put("status", "success");
+            response.put("message", "Rows deleted successfully from table " + request.getTargetTable());
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("Delete operation failed", e);
+            Map<String, String> response = new HashMap<>();
+            response.put("status", "error");
+            response.put("message", "Delete operation failed: " + e.getMessage());
             return ResponseEntity.internalServerError().body(response);
         }
     }
