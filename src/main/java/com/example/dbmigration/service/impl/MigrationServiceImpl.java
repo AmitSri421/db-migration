@@ -1,11 +1,13 @@
 package com.example.dbmigration.service.impl;
 
 import com.example.dbmigration.config.MappingConfig;
+import com.example.dbmigration.model.ColumnInfo;
 import com.example.dbmigration.model.DeleteRequest;
 import com.example.dbmigration.model.PartitionMapping;
 import com.example.dbmigration.model.TableMapping;
 import com.example.dbmigration.model.TruncateRequest;
 import com.example.dbmigration.service.MigrationService;
+import com.example.dbmigration.util.RowMapperUtil;
 import lombok.Data;
 import lombok.Getter;
 import lombok.Setter;
@@ -348,15 +350,7 @@ public class MigrationServiceImpl implements MigrationService {
     private List<ColumnInfo> getTableColumns(String tableName) {
         String sql = "SELECT column_name, data_type, data_length, data_precision, data_scale " +
                     "FROM all_tab_columns WHERE table_name = ? ORDER BY column_id";
-        return sourceJdbcTemplate.query(sql, (rs, rowNum) -> {
-            ColumnInfo column = new ColumnInfo();
-            column.setName(rs.getString("column_name"));
-            column.setDataType(rs.getString("data_type"));
-            column.setLength(rs.getInt("data_length"));
-            column.setPrecision(rs.getInt("data_precision"));
-            column.setScale(rs.getInt("data_scale"));
-            return column;
-        }, tableName);
+        return sourceJdbcTemplate.query(sql, RowMapperUtil.COLUMN_INFO_MAPPER, tableName);
     }
 
     private List<ColumnInfo> getTableColumns(String tableName, List<String> columns) {
@@ -369,15 +363,7 @@ public class MigrationServiceImpl implements MigrationService {
         params.add(tableName);
         params.addAll(columns);
         
-        return sourceJdbcTemplate.query(sql, params.toArray(), (rs, rowNum) -> {
-            ColumnInfo column = new ColumnInfo();
-            column.setName(rs.getString("column_name"));
-            column.setDataType(rs.getString("data_type"));
-            column.setLength(rs.getInt("data_length"));
-            column.setPrecision(rs.getInt("data_precision"));
-            column.setScale(rs.getInt("data_scale"));
-            return column;
-        });
+        return sourceJdbcTemplate.query(sql, params.toArray(), RowMapperUtil.COLUMN_INFO_MAPPER);
     }
 
     private List<String> getPartitions(String tableName, String partitionKey) {
@@ -421,31 +407,7 @@ public class MigrationServiceImpl implements MigrationService {
     }
 
     private Object getColumnValue(ResultSet rs, ColumnInfo column) throws SQLException {
-        String dataType = column.getDataType();
-        String columnName = column.getName();
-        
-        switch (dataType) {
-            case "NUMBER":
-                if (column.getScale() > 0) {
-                    return rs.getBigDecimal(columnName);
-                } else {
-                    return rs.getLong(columnName);
-                }
-            case "VARCHAR2":
-                return rs.getString(columnName);
-            case "TIMESTAMP(6)":
-                return rs.getTimestamp(columnName);
-            case "DATE":
-                return rs.getDate(columnName);
-            case "BLOB":
-                Blob blob = rs.getBlob(columnName);
-                return blob != null ? blob.getBytes(1, (int) blob.length()) : null;
-            case "CLOB":
-                Clob clob = rs.getClob(columnName);
-                return clob != null ? clob.getSubString(1, (int) clob.length()) : null;
-            default:
-                return rs.getObject(columnName);
-        }
+        return RowMapperUtil.getColumnValue(rs, column);
     }
 
     private void processBatch(String insertSql, List<Map<String, Object>> batch, List<ColumnInfo> columns, String tableName) {
@@ -457,9 +419,9 @@ public class MigrationServiceImpl implements MigrationService {
                 for (ColumnInfo column : columns) {
                     Object value = row.get(column.getName());
                     if (value == null) {
-                        ps.setNull(i++, getSqlType(column.getDataType()));
+                        ps.setNull(i++, RowMapperUtil.getSqlType(column.getDataType()));
                     } else {
-                        setParameterValue(ps, i++, value, column);
+                        RowMapperUtil.setParameterValue(ps, i++, value, column);
                     }
                 }
             } catch (SQLException e) {
@@ -467,75 +429,5 @@ public class MigrationServiceImpl implements MigrationService {
                 throw new RuntimeException("Failed to set parameter values", e);
             }
         });
-    }
-
-    private int getSqlType(String dataType) {
-        switch (dataType) {
-            case "NUMBER":
-                return Types.NUMERIC;
-            case "VARCHAR2":
-                return Types.VARCHAR;
-            case "TIMESTAMP(6)":
-                return Types.TIMESTAMP;
-            case "DATE":
-                return Types.DATE;
-            case "BLOB":
-                return Types.BLOB;
-            case "CLOB":
-                return Types.CLOB;
-            default:
-                return Types.OTHER;
-        }
-    }
-
-    private void setParameterValue(PreparedStatement ps, int index, Object value, ColumnInfo column) throws SQLException {
-        String dataType = column.getDataType();
-        
-        switch (dataType) {
-            case "NUMBER":
-                if (value instanceof Number) {
-                    ps.setObject(index, value);
-                } else {
-                    ps.setNull(index, Types.NUMERIC);
-                }
-                break;
-            case "VARCHAR2":
-                ps.setString(index, (String) value);
-                break;
-            case "TIMESTAMP(6)":
-                ps.setTimestamp(index, (Timestamp) value);
-                break;
-            case "DATE":
-                ps.setDate(index, (Date) value);
-                break;
-            case "BLOB":
-                byte[] blobData = (byte[]) value;
-                if (blobData != null) {
-                    ps.setBytes(index, blobData);
-                } else {
-                    ps.setNull(index, Types.BLOB);
-                }
-                break;
-            case "CLOB":
-                String clobData = (String) value;
-                if (clobData != null) {
-                    ps.setString(index, clobData);
-                } else {
-                    ps.setNull(index, Types.CLOB);
-                }
-                break;
-            default:
-                ps.setObject(index, value);
-        }
-    }
-
-    @Getter
-    @Setter
-    private static class ColumnInfo {
-        private String name;
-        private String dataType;
-        private int length;
-        private int precision;
-        private int scale;
     }
 } 
