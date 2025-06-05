@@ -9,5 +9,7 @@ public class TruncateRequest {
     @NotBlank(message = "Target table name is required")
     private String targetTable;
     
+    private String partitionValue;  // Optional, for truncating specific partition
+    
     private boolean cascade = false;  // Optional, for CASCADE TRUNCATE
 } 

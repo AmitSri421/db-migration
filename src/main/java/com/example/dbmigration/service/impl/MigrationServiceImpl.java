@@ -240,16 +240,37 @@ public class MigrationServiceImpl implements MigrationService {
             if (result.isEmpty()) {
                 throw new RuntimeException("Table " + request.getTargetTable() + " does not exist in target database");
             }
-            
-            // Build and execute truncate SQL
-            String truncateSql = "TRUNCATE TABLE " + request.getTargetTable();
-            if (request.isCascade()) {
-                truncateSql += " CASCADE";
+
+            // If partition value is provided, check if partition exists
+            if (request.getPartitionValue() != null && !request.getPartitionValue().isEmpty()) {
+                String checkPartitionSql = "SELECT 1 FROM all_tab_partitions WHERE table_name = ? AND partition_name = ?";
+                List<Integer> partitionResult = targetJdbcTemplate.queryForList(
+                    checkPartitionSql, Integer.class, request.getTargetTable(), request.getPartitionValue());
+                
+                if (partitionResult.isEmpty()) {
+                    throw new RuntimeException("Partition " + request.getPartitionValue() + 
+                        " does not exist in table " + request.getTargetTable());
+                }
             }
             
-            targetJdbcTemplate.execute(truncateSql);
+            // Build and execute truncate SQL
+            StringBuilder truncateSql = new StringBuilder("TRUNCATE TABLE ").append(request.getTargetTable());
             
-            log.info("Successfully truncated table: {}", request.getTargetTable());
+            if (request.getPartitionValue() != null && !request.getPartitionValue().isEmpty()) {
+                truncateSql.append(" PARTITION(").append(request.getPartitionValue()).append(")");
+            }
+            
+            if (request.isCascade()) {
+                truncateSql.append(" CASCADE");
+            }
+            
+            targetJdbcTemplate.execute(truncateSql.toString());
+            
+            String operation = request.getPartitionValue() != null ? "partition" : "table";
+            log.info("Successfully truncated {}: {}", operation, 
+                request.getPartitionValue() != null ? 
+                    request.getTargetTable() + "." + request.getPartitionValue() : 
+                    request.getTargetTable());
             
         } catch (Exception e) {
             log.error("Error truncating table: {}", request.getTargetTable(), e);
