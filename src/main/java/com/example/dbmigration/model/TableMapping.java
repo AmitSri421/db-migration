@@ -3,6 +3,7 @@ package com.example.dbmigration.model;
 import lombok.Data;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
+import java.util.List;
 
 @Data
 public class TableMapping {
@@ -16,4 +17,6 @@ public class TableMapping {
     private int batchSize;
     
     private String whereClause;
+    
+    private List<String> columns;  // Optional list of columns to migrate
 } 

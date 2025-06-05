@@ -28,6 +28,7 @@ import java.util.Map;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.stream.Collectors;
+import java.util.Collections;
 
 @Slf4j
 @Service
@@ -92,7 +93,9 @@ public class MigrationServiceImpl implements MigrationService {
         
         try {
             // Get column information with data types
-            List<ColumnInfo> columns = getTableColumns(mapping.getSourceTable());
+            List<ColumnInfo> columns = mapping.getColumns() != null && !mapping.getColumns().isEmpty() 
+                ? getTableColumns(mapping.getSourceTable(), mapping.getColumns())
+                : getTableColumns(mapping.getSourceTable());
             
             // Build SQL statements
             String selectSql = buildSelectSql(mapping.getSourceTable(), columns, mapping.getWhereClause());
@@ -146,7 +149,9 @@ public class MigrationServiceImpl implements MigrationService {
                 log.info("Migrating partition: {}", partition);
                 
                 // Get column information with data types
-                List<ColumnInfo> columns = getTableColumns(mapping.getSourceTable());
+                List<ColumnInfo> columns = mapping.getColumns() != null && !mapping.getColumns().isEmpty()
+                    ? getTableColumns(mapping.getSourceTable(), mapping.getColumns())
+                    : getTableColumns(mapping.getSourceTable());
                 
                 // Build SQL statements with partition
                 String selectSql = buildPartitionSelectSql(mapping.getSourceTable(), columns, 
@@ -234,6 +239,27 @@ public class MigrationServiceImpl implements MigrationService {
             column.setScale(rs.getInt("data_scale"));
             return column;
         }, tableName);
+    }
+
+    private List<ColumnInfo> getTableColumns(String tableName, List<String> columns) {
+        String sql = "SELECT column_name, data_type, data_length, data_precision, data_scale " +
+                    "FROM all_tab_columns WHERE table_name = ? AND column_name IN (" +
+                    String.join(",", Collections.nCopies(columns.size(), "?")) + ") " +
+                    "ORDER BY column_id";
+        
+        List<Object> params = new ArrayList<>();
+        params.add(tableName);
+        params.addAll(columns);
+        
+        return sourceJdbcTemplate.query(sql, params.toArray(), (rs, rowNum) -> {
+            ColumnInfo column = new ColumnInfo();
+            column.setName(rs.getString("column_name"));
+            column.setDataType(rs.getString("data_type"));
+            column.setLength(rs.getInt("data_length"));
+            column.setPrecision(rs.getInt("data_precision"));
+            column.setScale(rs.getInt("data_scale"));
+            return column;
+        });
     }
 
     private List<String> getPartitions(String tableName, String partitionKey) {
