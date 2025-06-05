@@ -7,8 +7,12 @@ import lombok.Setter;
 @Setter
 public class ColumnInfo {
     private String name;
-    private String dataType;
+    private OracleDataType dataType;
     private int length;
     private int precision;
     private int scale;
+
+    public void setDataType(String dataType) {
+        this.dataType = OracleDataType.fromString(dataType);
+    }
 } 

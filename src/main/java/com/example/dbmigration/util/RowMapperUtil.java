@@ -1,6 +1,7 @@
 package com.example.dbmigration.util;
 
 import com.example.dbmigration.model.ColumnInfo;
+import com.example.dbmigration.model.OracleDataType;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.RowMapper;
 
@@ -22,26 +23,23 @@ public class RowMapperUtil {
     };
 
     public static Object getColumnValue(ResultSet rs, ColumnInfo column) throws SQLException {
-        String dataType = column.getDataType();
         String columnName = column.getName();
         
-        switch (dataType) {
-            case "NUMBER":
-                if (column.getScale() > 0) {
-                    return rs.getBigDecimal(columnName);
-                } else {
-                    return rs.getLong(columnName);
-                }
-            case "VARCHAR2":
+        switch (column.getDataType()) {
+            case NUMBER:
+                return column.getScale() > 0 ? 
+                    rs.getBigDecimal(columnName) : 
+                    rs.getLong(columnName);
+            case VARCHAR2:
                 return rs.getString(columnName);
-            case "TIMESTAMP(6)":
+            case TIMESTAMP:
                 return rs.getTimestamp(columnName);
-            case "DATE":
+            case DATE:
                 return rs.getDate(columnName);
-            case "BLOB":
+            case BLOB:
                 var blob = rs.getBlob(columnName);
                 return blob != null ? blob.getBytes(1, (int) blob.length()) : null;
-            case "CLOB":
+            case CLOB:
                 var clob = rs.getClob(columnName);
                 return clob != null ? clob.getSubString(1, (int) clob.length()) : null;
             default:
@@ -49,46 +47,29 @@ public class RowMapperUtil {
         }
     }
 
-    public static int getSqlType(String dataType) {
-        switch (dataType) {
-            case "NUMBER":
-                return Types.NUMERIC;
-            case "VARCHAR2":
-                return Types.VARCHAR;
-            case "TIMESTAMP(6)":
-                return Types.TIMESTAMP;
-            case "DATE":
-                return Types.DATE;
-            case "BLOB":
-                return Types.BLOB;
-            case "CLOB":
-                return Types.CLOB;
-            default:
-                return Types.OTHER;
-        }
+    public static int getSqlType(OracleDataType dataType) {
+        return dataType.getJdbcType();
     }
 
     public static void setParameterValue(java.sql.PreparedStatement ps, int index, Object value, ColumnInfo column) throws SQLException {
-        String dataType = column.getDataType();
-        
-        switch (dataType) {
-            case "NUMBER":
+        switch (column.getDataType()) {
+            case NUMBER:
                 if (value instanceof Number) {
                     ps.setObject(index, value);
                 } else {
                     ps.setNull(index, Types.NUMERIC);
                 }
                 break;
-            case "VARCHAR2":
+            case VARCHAR2:
                 ps.setString(index, (String) value);
                 break;
-            case "TIMESTAMP(6)":
+            case TIMESTAMP:
                 ps.setTimestamp(index, (java.sql.Timestamp) value);
                 break;
-            case "DATE":
+            case DATE:
                 ps.setDate(index, (java.sql.Date) value);
                 break;
-            case "BLOB":
+            case BLOB:
                 byte[] blobData = (byte[]) value;
                 if (blobData != null) {
                     ps.setBytes(index, blobData);
@@ -96,7 +77,7 @@ public class RowMapperUtil {
                     ps.setNull(index, Types.BLOB);
                 }
                 break;
-            case "CLOB":
+            case CLOB:
                 String clobData = (String) value;
                 if (clobData != null) {
                     ps.setString(index, clobData);
