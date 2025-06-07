@@ -9,44 +9,34 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
-@RestController
-@RequestMapping("/api/v1/validation")
-@RequiredArgsConstructor
 @Slf4j
+@RestController
+@RequestMapping("/api/validation")
+@RequiredArgsConstructor
 public class ValidationController {
+
     private final ValidationService validationService;
 
     @PostMapping("/validate")
-    public ResponseEntity<Map<String, Object>> validate(@RequestBody ValidationRequest request) {
-        log.info("Received validation request for table: {} -> {}", request.getSourceTable(), request.getTargetTable());
+    public ResponseEntity<ValidationResult> validate(@RequestBody ValidationRequest request) {
+        log.info("Received validation request for tables: {} -> {}", 
+            request.getSourceTable(), request.getTargetTable());
         ValidationResult result = validationService.validate(request);
-        String reportPath = validationService.generateReport(List.of(result));
-        return ResponseEntity.ok(Map.of(
-            "validationResult", result,
-            "reportPath", reportPath
-        ));
+        return ResponseEntity.ok(result);
     }
 
     @PostMapping("/validate/batch")
-    public ResponseEntity<Map<String, Object>> validateBatch(@RequestBody List<ValidationRequest> requests) {
-        log.info("Received batch validation request for {} tables/partitions", requests.size());
+    public ResponseEntity<Map<String, ValidationResult>> validateBatch(@RequestBody List<ValidationRequest> requests) {
+        log.info("Received batch validation request for {} tables", requests.size());
         Map<String, ValidationResult> results = validationService.validateBatch(requests);
-        String reportPath = validationService.generateReport(results.values().stream().collect(Collectors.toList()));
-        return ResponseEntity.ok(Map.of(
-            "validationResults", results,
-            "reportPath", reportPath
-        ));
+        return ResponseEntity.ok(results);
     }
 
-    @GetMapping("/history")
-    public ResponseEntity<List<ValidationResult>> getValidationHistory(
-            @RequestParam(required = false) String tableName,
-            @RequestParam(required = false) String startDate,
-            @RequestParam(required = false) String endDate) {
-        log.info("Retrieving validation history for table: {}, from: {} to: {}", tableName, startDate, endDate);
-        List<ValidationResult> history = validationService.getValidationHistory(tableName, startDate, endDate);
-        return ResponseEntity.ok(history);
+    @PostMapping("/validate/report")
+    public ResponseEntity<String> generateReport(@RequestBody List<ValidationResult> results) {
+        log.info("Generating validation report for {} results", results.size());
+        String reportPath = validationService.generateReport(results);
+        return ResponseEntity.ok(reportPath);
     }
 } 

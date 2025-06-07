@@ -2,7 +2,7 @@ package com.example.dbmigration.model;
 
 import lombok.Data;
 import lombok.Builder;
-import java.time.LocalDateTime;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 
@@ -11,31 +11,46 @@ import java.util.Map;
 public class ValidationResult {
     private String sourceTable;
     private String targetTable;
-    private String partitionName;
-    private ValidationRequest.ValidationType validationType;
-    
-    private long sourceRowCount;
-    private long targetRowCount;
-    private boolean rowCountMatch;
-    
-    private List<String> mismatchedColumns;
-    private Map<String, Long> columnMismatchCounts;
-    
-    private List<String> missingPartitions;
-    private List<String> extraPartitions;
-    
-    private LocalDateTime validationStartTime;
-    private LocalDateTime validationEndTime;
-    private String validationDuration;
-    
-    private String errorMessage;
+    private ValidationType validationType;
+    private Date startTime;
+    private Date endTime;
     private boolean success;
-    
-    @Data
-    @Builder
-    public static class ColumnMismatch {
-        private String columnName;
-        private long mismatchCount;
-        private String sampleMismatch;  // Sample of mismatched data
-    }
+    private String errorMessage;
+
+    // Row count validation
+    private Long sourceRowCount;
+    private Long targetRowCount;
+    private boolean rowCountMatch;
+    private Map<String, Long> partitionRowCounts;
+
+    // Index validation
+    private List<String> missingIndexes;
+    private List<String> extraIndexes;
+    private List<String> differentIndexes;
+
+    // Constraint validation
+    private List<String> missingPrimaryKeys;
+    private List<String> extraPrimaryKeys;
+    private List<String> missingForeignKeys;
+    private List<String> extraForeignKeys;
+    private List<String> missingUniqueKeys;
+    private List<String> extraUniqueKeys;
+
+    // Null/not-null validation
+    private List<String> nullConstraintMismatches;
+    private List<String> notNullConstraintMismatches;
+
+    // Data type validation
+    private List<String> dataTypeMismatches;
+    private List<String> defaultValueMismatches;
+
+    // Partition strategy validation
+    private boolean partitionStrategyMatch;
+    private String partitionStrategyMismatch;
+    private List<String> partitionStrategyMismatches;
+
+    // Column order validation
+    private boolean columnOrderMatch;
+    private String columnOrderMismatch;
+    private List<String> columnOrderMismatches;
 } 

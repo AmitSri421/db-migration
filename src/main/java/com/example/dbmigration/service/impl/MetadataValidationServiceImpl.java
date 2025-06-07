@@ -2,129 +2,85 @@ package com.example.dbmigration.service.impl;
 
 import com.example.dbmigration.model.ValidationRequest;
 import com.example.dbmigration.model.ValidationResult;
-import com.example.dbmigration.model.ValidationType;
-import com.example.dbmigration.service.ValidationService;
+import com.example.dbmigration.service.MetadataValidationService;
 import com.example.dbmigration.util.MetadataQueries;
-import com.example.dbmigration.util.ValidationUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.text.SimpleDateFormat;
+
 import java.util.*;
 import java.util.stream.Collectors;
 
 @Slf4j
 @Service
-public class ValidationServiceImpl implements ValidationService {
+public class MetadataValidationServiceImpl implements MetadataValidationService {
+
     private final JdbcTemplate sourceJdbcTemplate;
     private final JdbcTemplate targetJdbcTemplate;
-    private final String validationHistoryPath;
 
-    public ValidationServiceImpl(JdbcTemplate sourceJdbcTemplate, JdbcTemplate targetJdbcTemplate) {
+    public MetadataValidationServiceImpl(JdbcTemplate sourceJdbcTemplate, JdbcTemplate targetJdbcTemplate) {
         this.sourceJdbcTemplate = sourceJdbcTemplate;
         this.targetJdbcTemplate = targetJdbcTemplate;
-        this.validationHistoryPath = "validation_history";
-        createValidationHistoryDirectory();
     }
 
     @Override
-    public ValidationResult validate(ValidationRequest request) {
-        log.info("Starting validation for table: {} -> {}", request.getSourceTable(), request.getTargetTable());
-        
-        ValidationResult.ValidationResultBuilder resultBuilder = ValidationResult.builder()
-                .sourceTable(request.getSourceTable())
-                .targetTable(request.getTargetTable())
-                .validationType(ValidationType.valueOf(request.getValidationType().name()))
-                .startTime(new Date());
+    public ValidationResult validateMetadata(ValidationRequest request) {
+        ValidationResult result = new ValidationResult();
+        result.setSourceTable(request.getSourceTable());
+        result.setTargetTable(request.getTargetTable());
+        result.setValidationType(request.getValidationType());
+        result.setStartTime(new Date());
 
         try {
             // Validate row counts
             if (request.isValidateRowCount()) {
-                validateRowCounts(request, resultBuilder);
+                validateRowCounts(request, result);
             }
 
             // Validate indexes
             if (request.isValidateIndexes()) {
-                validateIndexes(request, resultBuilder);
+                validateIndexes(request, result);
             }
 
             // Validate constraints
             if (request.isValidateConstraints()) {
-                validatePrimaryKeys(request, resultBuilder);
-                validateForeignKeys(request, resultBuilder);
-                validateUniqueKeys(request, resultBuilder);
+                validatePrimaryKeys(request, result);
+                validateForeignKeys(request, result);
+                validateUniqueKeys(request, result);
             }
 
             // Validate null/not-null constraints
             if (request.isValidateNullConstraints()) {
-                validateNullConstraints(request, resultBuilder);
+                validateNullConstraints(request, result);
             }
 
             // Validate data types and default values
             if (request.isValidateDataTypes()) {
-                validateDataTypes(request, resultBuilder);
+                validateDataTypes(request, result);
             }
 
             // Validate partition strategy
             if (request.isValidatePartitionStrategy()) {
-                validatePartitionStrategy(request, resultBuilder);
+                validatePartitionStrategy(request, result);
             }
 
             // Validate column order
             if (request.isValidateColumnOrder()) {
-                validateColumnOrder(request, resultBuilder);
+                validateColumnOrder(request, result);
             }
 
-            resultBuilder.success(true);
+            result.setSuccess(true);
         } catch (Exception e) {
-            log.error("Validation failed for table: {} -> {}", request.getSourceTable(), request.getTargetTable(), e);
-            resultBuilder.success(false)
-                    .errorMessage(e.getMessage());
+            log.error("Error during metadata validation", e);
+            result.setSuccess(false);
+            result.setErrorMessage(e.getMessage());
         }
 
-        resultBuilder.endTime(new Date());
-        ValidationResult result = resultBuilder.build();
-        saveValidationResult(result);
+        result.setEndTime(new Date());
         return result;
     }
 
-    @Override
-    public Map<String, ValidationResult> validateBatch(List<ValidationRequest> requests) {
-        Map<String, ValidationResult> results = new HashMap<>();
-        for (ValidationRequest request : requests) {
-            ValidationResult result = validate(request);
-            String key = request.getValidationType() == ValidationRequest.ValidationType.PARTITION ?
-                    request.getSourceTable() + "." + request.getPartitionKey() :
-                    request.getSourceTable();
-            results.put(key, result);
-        }
-        return results;
-    }
-
-    @Override
-    public String generateReport(List<ValidationResult> results) {
-        String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
-        String reportPath = validationHistoryPath + "/validation_report_" + timestamp + ".txt";
-        
-        try {
-            ValidationUtil.writeValidationReport(results, reportPath);
-            return reportPath;
-        } catch (IOException e) {
-            log.error("Failed to generate validation report", e);
-            throw new RuntimeException("Failed to generate validation report", e);
-        }
-    }
-
-    @Override
-    public List<ValidationResult> getValidationHistory(String tableName, String startDate, String endDate) {
-        // TODO: Implement validation history retrieval from database or file system
-        return new ArrayList<>();
-    }
-
-    private void validateRowCounts(ValidationRequest request, ValidationResult.ValidationResultBuilder resultBuilder) {
+    private void validateRowCounts(ValidationRequest request, ValidationResult result) {
         Long sourceCount = sourceJdbcTemplate.queryForObject(
             String.format(MetadataQueries.GET_ROW_COUNT, request.getSourceTable()),
             Long.class
@@ -134,12 +90,12 @@ public class ValidationServiceImpl implements ValidationService {
             Long.class
         );
 
-        resultBuilder.sourceRowCount(sourceCount)
-                .targetRowCount(targetCount)
-                .rowCountMatch(Objects.equals(sourceCount, targetCount));
+        result.setSourceRowCount(sourceCount);
+        result.setTargetRowCount(targetCount);
+        result.setRowCountMatch(Objects.equals(sourceCount, targetCount));
     }
 
-    private void validateIndexes(ValidationRequest request, ValidationResult.ValidationResultBuilder resultBuilder) {
+    private void validateIndexes(ValidationRequest request, ValidationResult result) {
         List<Map<String, Object>> sourceIndexes = sourceJdbcTemplate.queryForList(
             MetadataQueries.GET_INDEXES,
             request.getSourceTable()
@@ -156,15 +112,15 @@ public class ValidationServiceImpl implements ValidationService {
             .map(index -> index.get("INDEX_NAME").toString())
             .collect(Collectors.toSet());
 
-        resultBuilder.missingIndexes(new ArrayList<>(sourceIndexSet.stream()
+        result.setMissingIndexes(new ArrayList<>(sourceIndexSet.stream()
             .filter(index -> !targetIndexSet.contains(index))
-            .collect(Collectors.toSet())))
-            .extraIndexes(new ArrayList<>(targetIndexSet.stream()
-                .filter(index -> !sourceIndexSet.contains(index))
-                .collect(Collectors.toSet())));
+            .collect(Collectors.toSet())));
+        result.setExtraIndexes(new ArrayList<>(targetIndexSet.stream()
+            .filter(index -> !sourceIndexSet.contains(index))
+            .collect(Collectors.toSet())));
     }
 
-    private void validatePrimaryKeys(ValidationRequest request, ValidationResult.ValidationResultBuilder resultBuilder) {
+    private void validatePrimaryKeys(ValidationRequest request, ValidationResult result) {
         List<String> sourcePKs = sourceJdbcTemplate.queryForList(
             MetadataQueries.GET_PRIMARY_KEYS,
             String.class,
@@ -178,15 +134,13 @@ public class ValidationServiceImpl implements ValidationService {
             request.getTargetTable()
         );
 
-        resultBuilder.missingPrimaryKeys(new ArrayList<>(sourcePKs.stream()
-            .filter(pk -> !targetPKs.contains(pk))
-            .collect(Collectors.toSet())))
-            .extraPrimaryKeys(new ArrayList<>(targetPKs.stream()
-                .filter(pk -> !sourcePKs.contains(pk))
-                .collect(Collectors.toSet())));
+        result.setPrimaryKeyMatch(sourcePKs.equals(targetPKs));
+        if (!result.isPrimaryKeyMatch()) {
+            result.setPrimaryKeyMismatch("Source PKs: " + sourcePKs + ", Target PKs: " + targetPKs);
+        }
     }
 
-    private void validateForeignKeys(ValidationRequest request, ValidationResult.ValidationResultBuilder resultBuilder) {
+    private void validateForeignKeys(ValidationRequest request, ValidationResult result) {
         List<Map<String, Object>> sourceFKs = sourceJdbcTemplate.queryForList(
             MetadataQueries.GET_FOREIGN_KEYS,
             request.getSourceTable()
@@ -203,15 +157,15 @@ public class ValidationServiceImpl implements ValidationService {
             .map(fk -> fk.get("CONSTRAINT_NAME").toString())
             .collect(Collectors.toSet());
 
-        resultBuilder.missingForeignKeys(new ArrayList<>(sourceFKSet.stream()
+        result.setMissingForeignKeys(new ArrayList<>(sourceFKSet.stream()
             .filter(fk -> !targetFKSet.contains(fk))
-            .collect(Collectors.toSet())))
-            .extraForeignKeys(new ArrayList<>(targetFKSet.stream()
-                .filter(fk -> !sourceFKSet.contains(fk))
-                .collect(Collectors.toSet())));
+            .collect(Collectors.toSet())));
+        result.setExtraForeignKeys(new ArrayList<>(targetFKSet.stream()
+            .filter(fk -> !sourceFKSet.contains(fk))
+            .collect(Collectors.toSet())));
     }
 
-    private void validateUniqueKeys(ValidationRequest request, ValidationResult.ValidationResultBuilder resultBuilder) {
+    private void validateUniqueKeys(ValidationRequest request, ValidationResult result) {
         List<String> sourceUKs = sourceJdbcTemplate.queryForList(
             MetadataQueries.GET_UNIQUE_KEYS,
             String.class,
@@ -225,15 +179,13 @@ public class ValidationServiceImpl implements ValidationService {
             request.getTargetTable()
         );
 
-        resultBuilder.missingUniqueKeys(new ArrayList<>(sourceUKs.stream()
-            .filter(uk -> !targetUKs.contains(uk))
-            .collect(Collectors.toSet())))
-            .extraUniqueKeys(new ArrayList<>(targetUKs.stream()
-                .filter(uk -> !sourceUKs.contains(uk))
-                .collect(Collectors.toSet())));
+        result.setUniqueKeyMatch(sourceUKs.equals(targetUKs));
+        if (!result.isUniqueKeyMatch()) {
+            result.setUniqueKeyMismatch("Source UKs: " + sourceUKs + ", Target UKs: " + targetUKs);
+        }
     }
 
-    private void validateNullConstraints(ValidationRequest request, ValidationResult.ValidationResultBuilder resultBuilder) {
+    private void validateNullConstraints(ValidationRequest request, ValidationResult result) {
         List<Map<String, Object>> sourceColumns = sourceJdbcTemplate.queryForList(
             MetadataQueries.GET_COLUMNS,
             request.getSourceTable()
@@ -261,10 +213,10 @@ public class ValidationServiceImpl implements ValidationService {
             }
         });
 
-        resultBuilder.nullConstraintMismatches(mismatches);
+        result.setNullConstraintMismatches(mismatches);
     }
 
-    private void validateDataTypes(ValidationRequest request, ValidationResult.ValidationResultBuilder resultBuilder) {
+    private void validateDataTypes(ValidationRequest request, ValidationResult result) {
         List<Map<String, Object>> sourceColumns = sourceJdbcTemplate.queryForList(
             MetadataQueries.GET_COLUMNS,
             request.getSourceTable()
@@ -298,10 +250,10 @@ public class ValidationServiceImpl implements ValidationService {
             }
         });
 
-        resultBuilder.dataTypeMismatches(mismatches);
+        result.setDataTypeMismatches(mismatches);
     }
 
-    private void validatePartitionStrategy(ValidationRequest request, ValidationResult.ValidationResultBuilder resultBuilder) {
+    private void validatePartitionStrategy(ValidationRequest request, ValidationResult result) {
         Map<String, Object> sourcePartitionType = sourceJdbcTemplate.queryForMap(
             MetadataQueries.GET_PARTITION_TYPE,
             request.getSourceTable()
@@ -318,17 +270,20 @@ public class ValidationServiceImpl implements ValidationService {
         String targetSubType = targetPartitionType.get("SUBPARTITIONING_TYPE") != null ?
             targetPartitionType.get("SUBPARTITIONING_TYPE").toString() : null;
 
-        boolean match = sourceType.equals(targetType) && Objects.equals(sourceSubType, targetSubType);
-        resultBuilder.partitionStrategyMatch(match);
-        if (!match) {
-            resultBuilder.partitionStrategyMismatch(String.format(
+        result.setPartitionStrategyMatch(
+            sourceType.equals(targetType) &&
+            Objects.equals(sourceSubType, targetSubType)
+        );
+
+        if (!result.isPartitionStrategyMatch()) {
+            result.setPartitionStrategyMismatch(String.format(
                 "Source: %s/%s, Target: %s/%s",
                 sourceType, sourceSubType, targetType, targetSubType
             ));
         }
     }
 
-    private void validateColumnOrder(ValidationRequest request, ValidationResult.ValidationResultBuilder resultBuilder) {
+    private void validateColumnOrder(ValidationRequest request, ValidationResult result) {
         List<Map<String, Object>> sourceColumns = sourceJdbcTemplate.queryForList(
             MetadataQueries.GET_COLUMNS,
             request.getSourceTable()
@@ -345,32 +300,12 @@ public class ValidationServiceImpl implements ValidationService {
             .map(col -> col.get("COLUMN_NAME").toString())
             .collect(Collectors.toList());
 
-        boolean match = sourceOrder.equals(targetOrder);
-        resultBuilder.columnOrderMatch(match);
-        if (!match) {
-            resultBuilder.columnOrderMismatch(String.format(
+        result.setColumnOrderMatch(sourceOrder.equals(targetOrder));
+        if (!result.isColumnOrderMatch()) {
+            result.setColumnOrderMismatch(String.format(
                 "Source order: %s, Target order: %s",
                 sourceOrder, targetOrder
             ));
-        }
-    }
-
-    private void createValidationHistoryDirectory() {
-        try {
-            Files.createDirectories(Paths.get(validationHistoryPath));
-        } catch (IOException e) {
-            log.error("Failed to create validation history directory", e);
-            throw new RuntimeException("Failed to create validation history directory", e);
-        }
-    }
-
-    private void saveValidationResult(ValidationResult result) {
-        String timestamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
-        String resultPath = validationHistoryPath + "/" + result.getSourceTable() + "_" + timestamp + ".json";
-        try {
-            // TODO: Implement saving validation result to file or database
-        } catch (Exception e) {
-            log.error("Failed to save validation result", e);
         }
     }
 } 

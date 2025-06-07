@@ -19,16 +19,18 @@ public class ValidationRequest {
     @NotNull(message = "Validation type is required")
     private ValidationType validationType;
     
-    private List<String> columns;  // Optional list of columns to validate
-    
-    private String whereClause;    // Optional WHERE clause for validation
-    
-    @NotNull(message = "Output directory is required")
+    @NotBlank(message = "Output directory is required")
     private String outputDirectory;
     
+    // Metadata validations
     private boolean validateRowCount = true;
-    private boolean validateData = true;
-    private boolean validatePartitions = true;
+    private boolean validateIndexes = true;
+    private boolean validateConstraints = true;
+    private boolean validateNullConstraints = true;
+    private boolean validateDataTypes = true;
+    private boolean validateDefaultValues = true;
+    private boolean validatePartitionStrategy = true;
+    private boolean validateColumnOrder = true;
     
     public enum ValidationType {
         TABLE,
