@@ -41,41 +41,47 @@ public class ValidationServiceImpl implements ValidationService {
                 .startTime(new Date());
 
         try {
-            // Validate row counts
-            if (request.isValidateRowCount()) {
-                validateRowCounts(request, resultBuilder);
-            }
+            // If partitions are specified, validate only those partitions
+            if (request.getValidationType() == ValidationRequest.ValidationType.PARTITION && 
+                request.getPartitions() != null && !request.getPartitions().isEmpty()) {
+                validatePartitions(request, resultBuilder);
+            } else {
+                // Validate row counts
+                if (request.isValidateRowCount()) {
+                    validateRowCounts(request, resultBuilder);
+                }
 
-            // Validate indexes
-            if (request.isValidateIndexes()) {
-                validateIndexes(request, resultBuilder);
-            }
+                // Validate indexes
+                if (request.isValidateIndexes()) {
+                    validateIndexes(request, resultBuilder);
+                }
 
-            // Validate constraints
-            if (request.isValidateConstraints()) {
-                validatePrimaryKeys(request, resultBuilder);
-                validateForeignKeys(request, resultBuilder);
-                validateUniqueKeys(request, resultBuilder);
-            }
+                // Validate constraints
+                if (request.isValidateConstraints()) {
+                    validatePrimaryKeys(request, resultBuilder);
+                    validateForeignKeys(request, resultBuilder);
+                    validateUniqueKeys(request, resultBuilder);
+                }
 
-            // Validate null/not-null constraints
-            if (request.isValidateNullConstraints()) {
-                validateNullConstraints(request, resultBuilder);
-            }
+                // Validate null/not-null constraints
+                if (request.isValidateNullConstraints()) {
+                    validateNullConstraints(request, resultBuilder);
+                }
 
-            // Validate data types and default values
-            if (request.isValidateDataTypes()) {
-                validateDataTypes(request, resultBuilder);
-            }
+                // Validate data types and default values
+                if (request.isValidateDataTypes()) {
+                    validateDataTypes(request, resultBuilder);
+                }
 
-            // Validate partition strategy
-            if (request.isValidatePartitionStrategy()) {
-                validatePartitionStrategy(request, resultBuilder);
-            }
+                // Validate partition strategy
+                if (request.isValidatePartitionStrategy()) {
+                    validatePartitionStrategy(request, resultBuilder);
+                }
 
-            // Validate column order
-            if (request.isValidateColumnOrder()) {
-                validateColumnOrder(request, resultBuilder);
+                // Validate column order
+                if (request.isValidateColumnOrder()) {
+                    validateColumnOrder(request, resultBuilder);
+                }
             }
 
             resultBuilder.success(true);
@@ -366,5 +372,41 @@ public class ValidationServiceImpl implements ValidationService {
         } catch (Exception e) {
             log.error("Failed to save validation result", e);
         }
+    }
+
+    private void validatePartitions(ValidationRequest request, ValidationResult.ValidationResultBuilder resultBuilder) {
+        Map<String, Long> sourcePartitionCounts = new HashMap<>();
+        Map<String, Long> targetPartitionCounts = new HashMap<>();
+        List<String> mismatches = new ArrayList<>();
+
+        for (String partition : request.getPartitions()) {
+            // Get row count for each partition
+            Long sourceCount = sourceJdbcTemplate.queryForObject(
+                String.format(MetadataQueries.GET_PARTITION_ROW_COUNT, 
+                    request.getSourceTable(), 
+                    request.getPartitionKey(), 
+                    partition),
+                Long.class
+            );
+            Long targetCount = targetJdbcTemplate.queryForObject(
+                String.format(MetadataQueries.GET_PARTITION_ROW_COUNT, 
+                    request.getTargetTable(), 
+                    request.getPartitionKey(), 
+                    partition),
+                Long.class
+            );
+
+            sourcePartitionCounts.put(partition, sourceCount);
+            targetPartitionCounts.put(partition, targetCount);
+
+            if (!Objects.equals(sourceCount, targetCount)) {
+                mismatches.add(String.format("Partition %s: Source=%d, Target=%d", 
+                    partition, sourceCount, targetCount));
+            }
+        }
+
+        resultBuilder.sourcePartitionCounts(sourcePartitionCounts)
+                .targetPartitionCounts(targetPartitionCounts)
+                .partitionMismatches(mismatches);
     }
 } 

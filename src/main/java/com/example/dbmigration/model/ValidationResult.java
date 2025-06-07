@@ -44,6 +44,11 @@ public class ValidationResult {
     private List<String> dataTypeMismatches;
     private List<String> defaultValueMismatches;
 
+    // Partition validation
+    private Map<String, Long> sourcePartitionCounts;
+    private Map<String, Long> targetPartitionCounts;
+    private List<String> partitionMismatches;
+
     // Partition strategy validation
     private boolean partitionStrategyMatch;
     private String partitionStrategyMismatch;
