@@ -118,12 +118,6 @@ public class ValidationServiceImpl implements ValidationService {
         }
     }
 
-    @Override
-    public List<ValidationResult> getValidationHistory(String tableName, String startDate, String endDate) {
-        // TODO: Implement validation history retrieval from database or file system
-        return new ArrayList<>();
-    }
-
     private void validateRowCounts(ValidationRequest request, ValidationResult.ValidationResultBuilder resultBuilder) {
         Long sourceCount = sourceJdbcTemplate.queryForObject(
             String.format(MetadataQueries.GET_ROW_COUNT, request.getSourceTable()),

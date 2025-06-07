@@ -9,6 +9,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Slf4j
 @RestController
@@ -19,24 +20,33 @@ public class ValidationController {
     private final ValidationService validationService;
 
     @PostMapping("/validate")
-    public ResponseEntity<ValidationResult> validate(@RequestBody ValidationRequest request) {
+    public ResponseEntity<Map<String, Object>> validate(@RequestBody ValidationRequest request) {
         log.info("Received validation request for tables: {} -> {}", 
             request.getSourceTable(), request.getTargetTable());
+        
         ValidationResult result = validationService.validate(request);
-        return ResponseEntity.ok(result);
+        String reportPath = validationService.generateReport(List.of(result));
+        
+        Map<String, Object> response = Map.of(
+            "result", result,
+            "reportPath", reportPath
+        );
+        
+        return ResponseEntity.ok(response);
     }
 
     @PostMapping("/validate/batch")
-    public ResponseEntity<Map<String, ValidationResult>> validateBatch(@RequestBody List<ValidationRequest> requests) {
+    public ResponseEntity<Map<String, Object>> validateBatch(@RequestBody List<ValidationRequest> requests) {
         log.info("Received batch validation request for {} tables", requests.size());
+        
         Map<String, ValidationResult> results = validationService.validateBatch(requests);
-        return ResponseEntity.ok(results);
-    }
-
-    @PostMapping("/validate/report")
-    public ResponseEntity<String> generateReport(@RequestBody List<ValidationResult> results) {
-        log.info("Generating validation report for {} results", results.size());
-        String reportPath = validationService.generateReport(results);
-        return ResponseEntity.ok(reportPath);
+        String reportPath = validationService.generateReport(results.values().stream().collect(Collectors.toList()));
+        
+        Map<String, Object> response = Map.of(
+            "results", results,
+            "reportPath", reportPath
+        );
+        
+        return ResponseEntity.ok(response);
     }
 } 

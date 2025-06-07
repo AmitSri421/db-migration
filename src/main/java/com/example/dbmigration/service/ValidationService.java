@@ -7,32 +7,23 @@ import java.util.Map;
 
 public interface ValidationService {
     /**
-     * Validate a single table or partition
-     * @param request The validation request
-     * @return Validation result
+     * Validates a single table or partition
+     * @param request The validation request containing table names and validation options
+     * @return The validation result
      */
     ValidationResult validate(ValidationRequest request);
-    
+
     /**
-     * Validate multiple tables or partitions
+     * Validates multiple tables or partitions
      * @param requests List of validation requests
-     * @return Map of table/partition names to validation results
+     * @return Map of validation results keyed by table name
      */
     Map<String, ValidationResult> validateBatch(List<ValidationRequest> requests);
-    
+
     /**
-     * Generate a validation report
-     * @param results List of validation results
+     * Generates a validation report for the given results
+     * @param results List of validation results to include in the report
      * @return Path to the generated report file
      */
     String generateReport(List<ValidationResult> results);
-    
-    /**
-     * Get validation history
-     * @param tableName Optional table name filter
-     * @param startDate Optional start date filter
-     * @param endDate Optional end date filter
-     * @return List of validation results
-     */
-    List<ValidationResult> getValidationHistory(String tableName, String startDate, String endDate);
 } 
